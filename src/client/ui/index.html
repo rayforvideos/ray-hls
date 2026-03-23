@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ray-HLS Player</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="player-container">
+    <video id="video" controls></video>
+    <div id="controls">
+      <label>ABR Strategy:
+        <select id="abr-strategy">
+          <option value="conservative">Conservative</option>
+          <option value="aggressive">Aggressive</option>
+          <option value="smooth">Smooth</option>
+        </select>
+      </label>
+    </div>
+  </div>
+  <div id="debug-panel">
+    <h3>Debug Panel</h3>
+    <div id="stats">
+      <div>State: <span id="stat-state">IDLE</span></div>
+      <div>Quality: <span id="stat-quality">-</span></div>
+      <div>Bandwidth: <span id="stat-bandwidth">-</span></div>
+      <div>Buffer: <span id="stat-buffer">-</span></div>
+      <div>Strategy: <span id="stat-strategy">conservative</span></div>
+    </div>
+    <canvas id="chart" width="600" height="200"></canvas>
+  </div>
+  <script type="module" src="../index.ts"></script>
+</body>
+</html>
