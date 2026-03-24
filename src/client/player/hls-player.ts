@@ -424,11 +424,14 @@ export class HLSPlayer {
         const attrs = line.substring('#EXT-X-STREAM-INF:'.length);
         const bwMatch = attrs.match(/BANDWIDTH=(\d+)/);
         const resMatch = attrs.match(/RESOLUTION=(\d+)x(\d+)/);
-        if (bwMatch && resMatch) {
+        // Next non-empty, non-comment line is the variant URL (e.g. "360p/playlist.m3u8")
+        const urlLine = (i + 1 < lines.length) ? lines[i + 1].trim() : '';
+        const nameMatch = urlLine.match(/^([^/]+)\//);
+        if (bwMatch && resMatch && nameMatch) {
           const bandwidth = parseInt(bwMatch[1], 10);
           const width = parseInt(resMatch[1], 10);
           const height = parseInt(resMatch[2], 10);
-          const name = `${height}p`;
+          const name = nameMatch[1]; // e.g. "360p"
           levels.push({
             name,
             width,
