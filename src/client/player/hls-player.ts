@@ -45,7 +45,7 @@ export class HLSPlayer {
 
     // Allow replay after ended: reload the entire stream
     this.video.addEventListener('play', () => {
-      if (this.stateMachine.state === 'ENDED' && this._masterPlaylistUrl) {
+      if (this.video.ended && this._masterPlaylistUrl) {
         this.reset();
         this.load(this._masterPlaylistUrl);
       }
