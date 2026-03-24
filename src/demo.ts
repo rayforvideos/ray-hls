@@ -24,8 +24,10 @@ if (!fs.existsSync(INPUT_FILE)) {
 
 // Quality presets matching our shared types
 const QUALITIES = [
-  { name: '360p', width: 640, height: 360, vBitrate: '800k', aBitrate: '64k' },
-  { name: '480p', width: 854, height: 480, vBitrate: '1400k', aBitrate: '96k' },
+  { name: '360p',  width: 640,  height: 360,  vBitrate: '800k',  aBitrate: '64k'  },
+  { name: '480p',  width: 854,  height: 480,  vBitrate: '1400k', aBitrate: '96k'  },
+  { name: '720p',  width: 1280, height: 720,  vBitrate: '2800k', aBitrate: '128k' },
+  { name: '1080p', width: 1920, height: 1080, vBitrate: '5000k', aBitrate: '192k' },
 ];
 
 // Step 1: Generate HLS segments with FFmpeg
