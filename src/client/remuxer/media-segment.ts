@@ -9,7 +9,10 @@ import { box, fullBox, uint32, concat } from './mp4-box.js';
  * Build a trun box for the given samples.
  * Flags 0x000301: data-offset-present + sample-duration-present + sample-size-present.
  */
-function trun(samples: DemuxedSample[]): Uint8Array {
+// AAC frame duration in 90kHz clock: 1024 samples / 44100 Hz * 90000 ≈ 2090
+const AAC_FRAME_DURATION_90KHZ = Math.round(1024 / 44100 * 90000);
+
+function trun(samples: DemuxedSample[], isAudio: boolean = false): Uint8Array {
   const flags = 0x000301;
   const sampleCount = samples.length;
 
@@ -22,18 +25,19 @@ function trun(samples: DemuxedSample[]): Uint8Array {
 
   for (let i = 0; i < sampleCount; i++) {
     let duration: number;
-    if (i < sampleCount - 1) {
+    if (isAudio) {
+      // Fixed duration for AAC frames to keep audio in sync
+      duration = AAC_FRAME_DURATION_90KHZ;
+    } else if (i < sampleCount - 1) {
       const currentPts = samples[i].dts ?? samples[i].pts;
       const nextPts = samples[i + 1].dts ?? samples[i + 1].pts;
       duration = nextPts - currentPts;
     } else if (sampleCount > 1) {
-      // Last sample: use previous sample's duration
       const prevPts = samples[sampleCount - 2].dts ?? samples[sampleCount - 2].pts;
       const curPts = samples[sampleCount - 1].dts ?? samples[sampleCount - 1].pts;
       duration = curPts - prevPts;
     } else {
-      // Single sample: default duration
-      duration = 1024; // reasonable default for audio; for video ~3000 at 90kHz
+      duration = 3000;
     }
     if (duration < 0) duration = 0;
 
@@ -45,11 +49,11 @@ function trun(samples: DemuxedSample[]): Uint8Array {
   return fullBox('trun', 0, flags, data);
 }
 
-function traf(trackId: number, baseDecodeTime: number, samples: DemuxedSample[]): Uint8Array {
+function traf(trackId: number, baseDecodeTime: number, samples: DemuxedSample[], isAudio: boolean = false): Uint8Array {
   // tfhd flags: 0x020000 = default-base-is-moof
   const tfhdBox = fullBox('tfhd', 0, 0x020000, uint32(trackId));
   const tfdtBox = fullBox('tfdt', 0, 0, uint32(baseDecodeTime));
-  const trunBox = trun(samples);
+  const trunBox = trun(samples, isAudio);
   return box('traf', tfhdBox, tfdtBox, trunBox);
 }
 
@@ -67,7 +71,7 @@ export function generateMediaSegment(
     trafs.push(traf(1, videoBaseDecodeTime, videoSamples));
   }
   if (audioSamples.length > 0) {
-    trafs.push(traf(2, audioBaseDecodeTime, audioSamples));
+    trafs.push(traf(2, audioBaseDecodeTime, audioSamples, true));
   }
 
   const moofBox = box('moof', mfhdBox, ...trafs);

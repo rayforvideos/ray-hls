@@ -12,6 +12,7 @@ import { convertVideoSamples, convertAudioSamples } from '../remuxer/sample-conv
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
 const REBUFFER_THRESHOLD = 1; // seconds
+const AAC_FRAME_DURATION_90KHZ = Math.round(1024 / 44100 * 90000);
 
 function log(msg: string, ...args: unknown[]): void {
   console.log(`[Ray-HLS] ${msg}`, ...args);
@@ -239,8 +240,7 @@ export class HLSPlayer {
       await this.bufferManager.appendAudio(audioMediaSegment);
 
       this.videoBaseDecodeTime += this.computeTotalDuration(videoSamples);
-      // Keep audio in sync with video to avoid duration mismatch
-      this.audioBaseDecodeTime = this.videoBaseDecodeTime;
+      this.audioBaseDecodeTime += audioSamples.length * AAC_FRAME_DURATION_90KHZ;
       log('videoBaseDecodeTime:', this.videoBaseDecodeTime, 'audioBaseDecodeTime:', this.audioBaseDecodeTime);
       this.segmentIndex++;
       this.sequenceNumber++;
