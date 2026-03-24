@@ -55,6 +55,28 @@ export class BufferManager {
     this.cleanupBuffer(this.audioBuffer, currentTime);
   }
 
+  getBufferedEnd(): number {
+    let end = 0;
+    if (this.videoBuffer && this.videoBuffer.buffered.length > 0) {
+      end = Math.min(end || Infinity, this.videoBuffer.buffered.end(this.videoBuffer.buffered.length - 1));
+    }
+    if (this.audioBuffer && this.audioBuffer.buffered.length > 0) {
+      end = Math.min(end, this.audioBuffer.buffered.end(this.audioBuffer.buffered.length - 1));
+    }
+    return end;
+  }
+
+  async waitForIdle(): Promise<void> {
+    const waitFor = (sb: SourceBuffer | null) => {
+      if (!sb || !sb.updating) return Promise.resolve();
+      return new Promise<void>(resolve => {
+        sb.addEventListener('updateend', () => resolve(), { once: true });
+      });
+    };
+    await waitFor(this.videoBuffer);
+    await waitFor(this.audioBuffer);
+  }
+
   getBufferLevel(currentTime: number): number {
     if (!this.videoBuffer || this.videoBuffer.buffered.length === 0) {
       return 0;

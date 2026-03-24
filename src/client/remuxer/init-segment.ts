@@ -261,7 +261,7 @@ function videoTrak(opts: InitSegmentOptions): Uint8Array {
 function audioTrak(opts: InitSegmentOptions): Uint8Array {
   const { audioSampleRate, audioChannels } = opts;
   const tkhdBox = tkhd(2, true, 0, 0);
-  const mdhdBox = mdhd(audioSampleRate);
+  const mdhdBox = mdhd(90000); // use 90kHz to match PTS clock from TS demuxer
   const hdlrBox = hdlr('soun', 'SoundHandler');
   const smhdBox = smhd();
   const dinfBox = dinf();

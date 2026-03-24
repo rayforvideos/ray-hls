@@ -7,10 +7,19 @@ import { ABREngine } from '../abr/abr-engine.js';
 import { PrefetchEngine } from '../prefetch/prefetch-engine.js';
 import { QualityLevel, QUALITY_LEVELS, NAL_TYPE_SPS, NAL_TYPE_PPS } from '../../shared/types.js';
 import { parseNALUnits } from '../demuxer/nal-parser.js';
+import { convertVideoSamples, convertAudioSamples } from '../remuxer/sample-converter.js';
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
 const REBUFFER_THRESHOLD = 1; // seconds
+
+function log(msg: string, ...args: unknown[]): void {
+  console.log(`[Ray-HLS] ${msg}`, ...args);
+}
+
+function logError(msg: string, ...args: unknown[]): void {
+  console.error(`[Ray-HLS] ${msg}`, ...args);
+}
 
 export class HLSPlayer {
   private stateMachine = new PlayerStateMachine();
@@ -25,16 +34,22 @@ export class HLSPlayer {
   private videoBaseDecodeTime = 0;
   private audioBaseDecodeTime = 0;
   private sequenceNumber = 1;
+  private _lastBandwidth = 0;
+  private _lastBufferLevel = 0;
+  private _lastQuality = '-';
 
   constructor(video: HTMLVideoElement) {
     this.video = video;
 
-    // timeupdate handler: cleanup, ABR buffer level, rebuffering detection
     this.video.addEventListener('timeupdate', () => {
       const currentTime = this.video.currentTime;
-      this.bufferManager.cleanup(currentTime);
+      // Don't cleanup after stream has ended — removing buffered data causes stall
+      if (this.stateMachine.state !== 'ENDED') {
+        this.bufferManager.cleanup(currentTime);
+      }
 
       const bufferLevel = this.bufferManager.getBufferLevel(currentTime);
+      this._lastBufferLevel = bufferLevel;
       if (this.abrEngine) {
         this.abrEngine.updateBufferLevel(bufferLevel);
       }
@@ -61,147 +76,172 @@ export class HLSPlayer {
     return this.abrEngine;
   }
 
+  get lastBandwidth(): number { return this._lastBandwidth; }
+  get lastBufferLevel(): number { return this._lastBufferLevel; }
+  get lastQuality(): string { return this._lastQuality; }
+
   async load(masterPlaylistUrl: string): Promise<void> {
-    // 1. Transition to LOADING_MANIFEST
-    if (!this.stateMachine.transition('LOADING_MANIFEST')) {
-      throw new Error('Cannot load: invalid state transition');
-    }
-
-    // 2. Fetch master playlist, parse quality levels
-    const playlistText = await this.fetchText(masterPlaylistUrl);
-    this.qualityLevels = this.parseMasterPlaylist(playlistText);
-    if (this.qualityLevels.length === 0) {
-      this.qualityLevels = [...QUALITY_LEVELS];
-    }
-    this.abrEngine = new ABREngine(this.qualityLevels);
-
-    // Derive base URL from the master playlist URL
-    const lastSlash = masterPlaylistUrl.lastIndexOf('/');
-    this.baseUrl = lastSlash >= 0 ? masterPlaylistUrl.substring(0, lastSlash) : '';
-
-    // 3. Create MediaSource, set video.src
-    this.mediaSource = new MediaSource();
-    this.video.src = URL.createObjectURL(this.mediaSource);
-
-    // 4. Wait for 'sourceopen'
-    await new Promise<void>((resolve) => {
-      this.mediaSource!.addEventListener('sourceopen', () => resolve(), { once: true });
-    });
-
-    // 5. Add SourceBuffers
-    const videoSourceBuffer = this.mediaSource.addSourceBuffer(
-      'video/mp4; codecs="avc1.42c01e"',
-    );
-    const audioSourceBuffer = this.mediaSource.addSourceBuffer(
-      'audio/mp4; codecs="mp4a.40.2"',
-    );
-
-    // 6. Attach to BufferManager
-    this.bufferManager.attach(videoSourceBuffer, audioSourceBuffer);
-
-    // 7. Transition to LOADING_INIT_SEGMENT
-    this.stateMachine.transition('LOADING_INIT_SEGMENT');
-
-    // 8. Fetch first segment, demux, extract SPS/PPS, generate and append init segments
-    const quality = this.abrEngine.decide();
-    const firstSegmentUrl = `${this.baseUrl}/${quality.name}/${quality.name}-seg-${this.segmentIndex}.ts`;
-    const firstSegmentData = await this.fetchBinary(firstSegmentUrl);
-
-    const demuxer = new TSDemuxer();
-    const result = demuxer.demux(firstSegmentData);
-
-    // Extract SPS and PPS from the first video sample
-    let sps: Uint8Array | null = null;
-    let pps: Uint8Array | null = null;
-    for (const sample of result.videoSamples) {
-      const nalUnits = parseNALUnits(sample.data);
-      for (const nal of nalUnits) {
-        if (nal.type === NAL_TYPE_SPS && !sps) {
-          sps = nal.data;
-        }
-        if (nal.type === NAL_TYPE_PPS && !pps) {
-          pps = nal.data;
-        }
+    try {
+      if (!this.stateMachine.transition('LOADING_MANIFEST')) {
+        throw new Error('Cannot load: invalid state transition');
       }
-      if (sps && pps) break;
-    }
 
-    if (!sps || !pps) {
+      log('Fetching master playlist:', masterPlaylistUrl);
+      const playlistText = await this.fetchText(masterPlaylistUrl);
+      this.qualityLevels = this.parseMasterPlaylist(playlistText);
+      if (this.qualityLevels.length === 0) {
+        this.qualityLevels = [...QUALITY_LEVELS];
+      }
+      log('Quality levels:', this.qualityLevels.map(q => q.name));
+      this.abrEngine = new ABREngine(this.qualityLevels);
+
+      const lastSlash = masterPlaylistUrl.lastIndexOf('/');
+      this.baseUrl = lastSlash >= 0 ? masterPlaylistUrl.substring(0, lastSlash) : '';
+
+      // Fetch first segment BEFORE creating MediaSource (need SPS for codec string)
+      const quality = this.abrEngine.decide();
+      this._lastQuality = quality.name;
+      const firstSegmentUrl = `${this.baseUrl}/${quality.name}/${quality.name}-seg-${this.segmentIndex}.ts`;
+      log('Fetching first segment:', firstSegmentUrl);
+      const firstSegmentData = await this.fetchBinary(firstSegmentUrl);
+      log('First segment size:', firstSegmentData.byteLength);
+
+      const demuxer = new TSDemuxer();
+      const result = demuxer.demux(firstSegmentData);
+      log('Demuxed:', result.videoSamples.length, 'video samples,', result.audioSamples.length, 'audio samples');
+
+      // Extract SPS and PPS
+      let sps: Uint8Array | null = null;
+      let pps: Uint8Array | null = null;
+      for (const sample of result.videoSamples) {
+        const nalUnits = parseNALUnits(sample.data);
+        for (const nal of nalUnits) {
+          if (nal.type === NAL_TYPE_SPS && !sps) sps = nal.data;
+          if (nal.type === NAL_TYPE_PPS && !pps) pps = nal.data;
+        }
+        if (sps && pps) break;
+      }
+
+      if (!sps || !pps) {
+        logError('Could not find SPS/PPS in first segment');
+        this.stateMachine.transition('ERROR');
+        throw new Error('Could not find SPS/PPS in first segment');
+      }
+
+      // Build codec string from actual SPS
+      const profile = sps[1];
+      const compat = sps[2];
+      const level = sps[3];
+      const codecStr = `avc1.${profile.toString(16).padStart(2, '0')}${compat.toString(16).padStart(2, '0')}${level.toString(16).padStart(2, '0')}`;
+      log('Detected video codec:', codecStr);
+      log('SPS length:', sps.length, 'PPS length:', pps.length);
+
+      // Now create MediaSource with the correct codec
+      this.mediaSource = new MediaSource();
+      this.video.src = URL.createObjectURL(this.mediaSource);
+
+      this.stateMachine.transition('LOADING_INIT_SEGMENT');
+
+      await new Promise<void>((resolve) => {
+        this.mediaSource!.addEventListener('sourceopen', () => resolve(), { once: true });
+      });
+
+      log('MediaSource opened, adding SourceBuffers...');
+      const videoSourceBuffer = this.mediaSource.addSourceBuffer(
+        `video/mp4; codecs="${codecStr}"`,
+      );
+      const audioSourceBuffer = this.mediaSource.addSourceBuffer(
+        'audio/mp4; codecs="mp4a.40.2"',
+      );
+
+      this.bufferManager.attach(videoSourceBuffer, audioSourceBuffer);
+
+      const audioSampleRate = 44100;
+      const audioChannels = 2;
+
+      const initOpts = {
+        width: quality.width,
+        height: quality.height,
+        sps,
+        pps,
+        audioSampleRate,
+        audioChannels,
+      };
+
+      // Generate SEPARATE init segments for video and audio
+      const videoInitSegment = generateInitSegment({ ...initOpts, trackType: 'video' as const });
+      const audioInitSegment = generateInitSegment({ ...initOpts, trackType: 'audio' as const });
+
+      log('Appending video init segment:', videoInitSegment.byteLength, 'bytes');
+      await this.bufferManager.appendVideo(videoInitSegment);
+      log('Appending audio init segment:', audioInitSegment.byteLength, 'bytes');
+      await this.bufferManager.appendAudio(audioInitSegment);
+
+      // Convert samples: Annex B → AVCC for video, strip ADTS for audio
+      const videoSamples = convertVideoSamples(result.videoSamples);
+      const audioSamples = convertAudioSamples(result.audioSamples);
+      log('Converted samples: video', videoSamples.length, 'audio', audioSamples.length);
+
+      // Generate and append first media segment
+      log('Generating media segments for segment 0...');
+      const videoMediaSegment = generateMediaSegment(
+        this.sequenceNumber, videoSamples, [], this.videoBaseDecodeTime, 0,
+      );
+      const audioMediaSegment = generateMediaSegment(
+        this.sequenceNumber, [], audioSamples, 0, this.audioBaseDecodeTime,
+      );
+
+      log('Appending video media segment:', videoMediaSegment.byteLength, 'bytes');
+      await this.bufferManager.appendVideo(videoMediaSegment);
+      log('Appending audio media segment:', audioMediaSegment.byteLength, 'bytes');
+      await this.bufferManager.appendAudio(audioMediaSegment);
+
+      this.videoBaseDecodeTime += this.computeTotalDuration(videoSamples);
+      // Keep audio in sync with video to avoid duration mismatch
+      this.audioBaseDecodeTime = this.videoBaseDecodeTime;
+      log('videoBaseDecodeTime:', this.videoBaseDecodeTime, 'audioBaseDecodeTime:', this.audioBaseDecodeTime);
+      this.segmentIndex++;
+      this.sequenceNumber++;
+
+      this.stateMachine.transition('BUFFERING');
+      this.stateMachine.transition('PLAYING');
+      log('Playing!');
+      this.video.play().catch((e) => { log('Autoplay blocked:', e.message); });
+
+      this.loadLoop();
+    } catch (err) {
+      logError('Load failed:', err);
       this.stateMachine.transition('ERROR');
-      throw new Error('Could not find SPS/PPS in first segment');
     }
-
-    // Determine audio parameters from first audio sample (AAC default: 44100Hz, 2ch)
-    const audioSampleRate = 44100;
-    const audioChannels = 2;
-
-    const initOpts = {
-      width: quality.width,
-      height: quality.height,
-      sps,
-      pps,
-      audioSampleRate,
-      audioChannels,
-    };
-
-    // Generate SEPARATE init segments for video and audio
-    const videoInitSegment = generateInitSegment({ ...initOpts, trackType: 'video' as const });
-    const audioInitSegment = generateInitSegment({ ...initOpts, trackType: 'audio' as const });
-
-    await this.bufferManager.appendVideo(videoInitSegment);
-    await this.bufferManager.appendAudio(audioInitSegment);
-
-    // Generate and append media segments for the first segment (separate video/audio)
-    const videoMediaSegment = generateMediaSegment(
-      this.sequenceNumber, result.videoSamples, [], this.videoBaseDecodeTime, 0,
-    );
-    const audioMediaSegment = generateMediaSegment(
-      this.sequenceNumber, [], result.audioSamples, 0, this.audioBaseDecodeTime,
-    );
-
-    await this.bufferManager.appendVideo(videoMediaSegment);
-    await this.bufferManager.appendAudio(audioMediaSegment);
-
-    // Update baseDecodeTimes
-    this.videoBaseDecodeTime += this.computeTotalDuration(result.videoSamples);
-    this.audioBaseDecodeTime += this.computeTotalDuration(result.audioSamples);
-    this.segmentIndex++;
-    this.sequenceNumber++;
-
-    // 9. Transition to BUFFERING -> PLAYING
-    this.stateMachine.transition('BUFFERING');
-    this.stateMachine.transition('PLAYING');
-    this.video.play().catch(() => { /* autoplay may be blocked */ });
-
-    // 10. Start loadLoop
-    this.loadLoop();
   }
-
-  // ---------------------------------------------------------------------------
-  // Load loop
-  // ---------------------------------------------------------------------------
 
   private async loadLoop(): Promise<void> {
     while (
       this.stateMachine.state === 'PLAYING' ||
       this.stateMachine.state === 'REBUFFERING'
     ) {
-      // Check prefetch
       const bufferLevel = this.bufferManager.getBufferLevel(this.video.currentTime);
       const currentQuality = this.abrEngine!.decide();
+      this._lastQuality = currentQuality.name;
       const prefetchDecision = this.prefetchEngine.shouldPrefetch({
         bufferLevel,
-        bandwidth: 0, // bandwidth is tracked inside ABR engine
+        bandwidth: this._lastBandwidth,
         currentQuality,
         nextSegmentIndex: this.segmentIndex,
       });
 
       if (!prefetchDecision.shouldFetch) {
         await this.sleep(1000);
-        continue;
+        // If playback reached near the end of buffered data, probe for next segment
+        // to trigger 404 → endOfStream
+        const buffered = this.bufferManager.getBufferLevel(this.video.currentTime);
+        if (buffered < 2 && this.segmentIndex > 0) {
+          // Let it fall through to fetch — if 404, stream ends cleanly
+        } else {
+          continue;
+        }
       }
 
-      // Decide quality via ABR
       const quality = currentQuality;
       const segmentUrl = `${this.baseUrl}/${quality.name}/${quality.name}-seg-${this.segmentIndex}.ts`;
 
@@ -215,17 +255,22 @@ export class HLSPlayer {
           const response = await fetch(segmentUrl);
 
           if (response.status === 404) {
-            // End of stream
+            log('Segment not found (end of stream):', segmentUrl);
             this.stateMachine.transition('ENDED');
+            // Wait for any pending SourceBuffer updates before endOfStream
+            await this.bufferManager.waitForIdle();
             if (this.mediaSource && this.mediaSource.readyState === 'open') {
-              this.mediaSource.endOfStream();
+              try {
+                this.mediaSource.endOfStream();
+                log('endOfStream called, duration:', this.video.duration);
+              } catch (e) {
+                log('endOfStream error (non-fatal):', e);
+              }
             }
             return;
           }
 
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
           const buffer = await response.arrayBuffer();
           downloadTimeMs = performance.now() - startTime;
@@ -234,6 +279,7 @@ export class HLSPlayer {
         } catch (err) {
           retryCount++;
           if (retryCount >= MAX_RETRIES) {
+            logError('Max retries reached for:', segmentUrl);
             this.stateMachine.transition('ERROR');
             return;
           }
@@ -246,73 +292,57 @@ export class HLSPlayer {
         return;
       }
 
-      // Measure and update ABR bandwidth
       const byteSize = segmentData.byteLength;
       const bps = downloadTimeMs > 0 ? (byteSize * 8 * 1000) / downloadTimeMs : 0;
+      this._lastBandwidth = bps;
       this.abrEngine!.updateBandwidth(bps);
-      this.abrEngine!.recordMeasurement({
-        segmentUrl,
-        byteSize,
-        downloadTimeMs,
-        quality,
-      });
+      this.abrEngine!.recordMeasurement({ segmentUrl, byteSize, downloadTimeMs, quality });
 
-      // Demux segment
-      const demuxer = new TSDemuxer();
-      const result = demuxer.demux(segmentData);
+      try {
+        const demuxer = new TSDemuxer();
+        const result = demuxer.demux(segmentData);
+        const videoSamples = convertVideoSamples(result.videoSamples);
+        const audioSamples = convertAudioSamples(result.audioSamples);
+        log(`Segment ${this.segmentIndex}: ${videoSamples.length}v + ${audioSamples.length}a samples`);
 
-      // Generate SEPARATE media segments for video and audio
-      const videoMediaSegment = generateMediaSegment(
-        this.sequenceNumber, result.videoSamples, [], this.videoBaseDecodeTime, 0,
-      );
-      const audioMediaSegment = generateMediaSegment(
-        this.sequenceNumber, [], result.audioSamples, 0, this.audioBaseDecodeTime,
-      );
+        const videoMediaSegment = generateMediaSegment(
+          this.sequenceNumber, videoSamples, [], this.videoBaseDecodeTime, 0,
+        );
+        const audioMediaSegment = generateMediaSegment(
+          this.sequenceNumber, [], audioSamples, 0, this.audioBaseDecodeTime,
+        );
 
-      await this.bufferManager.appendVideo(videoMediaSegment);
-      await this.bufferManager.appendAudio(audioMediaSegment);
+        await this.bufferManager.appendVideo(videoMediaSegment);
+        await this.bufferManager.appendAudio(audioMediaSegment);
 
-      // Increment segment index and baseDecodeTimes
-      this.videoBaseDecodeTime += this.computeTotalDuration(result.videoSamples);
-      this.audioBaseDecodeTime += this.computeTotalDuration(result.audioSamples);
-      this.segmentIndex++;
-      this.sequenceNumber++;
+        this.videoBaseDecodeTime += this.computeTotalDuration(videoSamples);
+        this.audioBaseDecodeTime += this.computeTotalDuration(audioSamples);
+        this.segmentIndex++;
+        this.sequenceNumber++;
 
-      // If REBUFFERING and buffer recovered, transition to PLAYING
-      if (this.stateMachine.state === 'REBUFFERING') {
-        const newBufferLevel = this.bufferManager.getBufferLevel(this.video.currentTime);
-        if (newBufferLevel > REBUFFER_THRESHOLD) {
-          this.stateMachine.transition('PLAYING');
+        if (this.stateMachine.state === 'REBUFFERING') {
+          const newBufferLevel = this.bufferManager.getBufferLevel(this.video.currentTime);
+          if (newBufferLevel > REBUFFER_THRESHOLD) {
+            this.stateMachine.transition('PLAYING');
+          }
         }
-      }
 
-      // Report bandwidth to server (fire-and-forget, non-critical)
-      this.reportBandwidth(bps, quality).catch(() => { /* ignore */ });
+        this.reportBandwidth(bps, quality).catch(() => {});
+      } catch (err) {
+        logError('Segment processing error:', err);
+      }
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Compute the total duration of a set of samples by summing PTS/DTS differences.
-   */
-  private computeTotalDuration(
-    samples: Array<{ pts: number; dts?: number }>,
-  ): number {
+  private computeTotalDuration(samples: Array<{ pts: number; dts?: number }>): number {
     if (samples.length === 0) return 0;
-    if (samples.length === 1) {
-      // Single sample: use a reasonable default (3000 for video at 90kHz, 1024 for audio)
-      return 3000;
-    }
+    if (samples.length === 1) return 3000;
     let total = 0;
     for (let i = 1; i < samples.length; i++) {
       const prev = samples[i - 1].dts ?? samples[i - 1].pts;
       const curr = samples[i].dts ?? samples[i].pts;
       total += curr - prev;
     }
-    // Add duration of last sample (assume same as previous gap)
     const lastGap =
       (samples[samples.length - 1].dts ?? samples[samples.length - 1].pts) -
       (samples[samples.length - 2].dts ?? samples[samples.length - 2].pts);
@@ -349,19 +379,14 @@ export class HLSPlayer {
 
   private async fetchText(url: string): Promise<string> {
     const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch ${url}: HTTP ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`Failed to fetch ${url}: HTTP ${response.status}`);
     return response.text();
   }
 
   private async fetchBinary(url: string): Promise<Uint8Array> {
     const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch ${url}: HTTP ${response.status}`);
-    }
-    const buffer = await response.arrayBuffer();
-    return new Uint8Array(buffer);
+    if (!response.ok) throw new Error(`Failed to fetch ${url}: HTTP ${response.status}`);
+    return new Uint8Array(await response.arrayBuffer());
   }
 
   private async reportBandwidth(bps: number, quality: QualityLevel): Promise<void> {
@@ -369,11 +394,14 @@ export class HLSPlayer {
       await fetch('/api/bandwidth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bandwidth: bps, quality: quality.name }),
+        body: JSON.stringify({
+          clientId: 'player-1',
+          measuredBandwidth: bps,
+          currentQuality: quality.name,
+          bufferLevel: this._lastBufferLevel,
+        }),
       });
-    } catch {
-      // Non-critical, ignore errors
-    }
+    } catch { /* ignore */ }
   }
 
   private sleep(ms: number): Promise<void> {

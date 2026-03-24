@@ -82,5 +82,38 @@ export function generateMediaSegment(
   }
   const mdatBox = box('mdat', ...mdatPayloads);
 
+  // Patch data_offset in each trun to point from moof start to mdat payload (mdat header = 8 bytes)
+  const dataOffset = moofBox.length + 8; // moof size + mdat box header (size + type)
+  patchTrunDataOffset(moofBox, dataOffset);
+
   return concat(moofBox, mdatBox);
+}
+
+/**
+ * Find trun boxes inside moof and patch the data_offset field.
+ * data_offset is at byte 16 of each trun box (8 box header + 4 version/flags + 4 sample_count).
+ */
+function patchTrunDataOffset(moof: Uint8Array, dataOffset: number): void {
+  const view = new DataView(moof.buffer, moof.byteOffset, moof.byteLength);
+  let offset = 8; // skip moof box header
+  while (offset < moof.length - 8) {
+    const boxSize = view.getUint32(offset);
+    const boxType = String.fromCharCode(moof[offset+4], moof[offset+5], moof[offset+6], moof[offset+7]);
+    if (boxType === 'traf') {
+      // Search for trun inside traf
+      let innerOffset = offset + 8;
+      const trafEnd = offset + boxSize;
+      while (innerOffset < trafEnd - 8) {
+        const innerSize = view.getUint32(innerOffset);
+        const innerType = String.fromCharCode(moof[innerOffset+4], moof[innerOffset+5], moof[innerOffset+6], moof[innerOffset+7]);
+        if (innerType === 'trun') {
+          // trun layout: size(4) + type(4) + version+flags(4) + sample_count(4) + data_offset(4)
+          // data_offset is at innerOffset + 16
+          view.setUint32(innerOffset + 16, dataOffset);
+        }
+        innerOffset += innerSize;
+      }
+    }
+    offset += boxSize;
+  }
 }

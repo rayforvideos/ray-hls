@@ -7,19 +7,32 @@ const strategySelect = document.getElementById('abr-strategy') as HTMLSelectElem
 const player = new HLSPlayer(video);
 const debug = new DebugPanel('chart');
 
+// Strategy switching (delay until ABR is initialized)
 strategySelect.addEventListener('change', () => {
-  player.abr.setStrategy(strategySelect.value);
+  try {
+    player.abr.setStrategy(strategySelect.value);
+  } catch { /* ABR not ready yet */ }
 });
 
 // Update debug panel every second
 setInterval(() => {
-  debug.update({
-    state: player.state,
-    quality: '-', // will be updated when playing
-    bandwidth: 0,
-    bufferLevel: 0,
-    strategy: player.abr.currentStrategyName,
-  });
+  try {
+    debug.update({
+      state: player.state,
+      quality: player.lastQuality,
+      bandwidth: player.lastBandwidth,
+      bufferLevel: player.lastBufferLevel,
+      strategy: player.abr.currentStrategyName,
+    });
+  } catch {
+    debug.update({
+      state: player.state,
+      quality: '-',
+      bandwidth: 0,
+      bufferLevel: 0,
+      strategy: '-',
+    });
+  }
 }, 1000);
 
 // Auto-load
