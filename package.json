@@ -7,7 +7,12 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc",
+    "build:client": "tsc -p tsconfig.client.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "node dist/server/pipeline.js",
+    "dev": "npx tsx src/server/pipeline.ts"
   },
   "keywords": [],
   "author": "",
