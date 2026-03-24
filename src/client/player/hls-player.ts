@@ -66,10 +66,7 @@ export class HLSPlayer {
 
     this.video.addEventListener('timeupdate', () => {
       const currentTime = this.video.currentTime;
-      // Don't cleanup after all segments loaded or stream ended — can't refill
-      if (this.stateMachine.state !== 'ENDED' && this.segmentIndex < this._totalSegments) {
-        this.bufferManager.cleanup(currentTime);
-      }
+      // VOD: never cleanup — all data is needed for seek. Cleanup only matters for live streams.
 
       const bufferLevel = this.bufferManager.getBufferLevel(currentTime);
       this._lastBufferLevel = bufferLevel;
