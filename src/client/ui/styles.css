@@ -14,18 +14,17 @@ body {
 }
 
 #player-container {
-  max-width: 800px;
+  max-width: 960px;
   margin: 0 auto 24px auto;
   background-color: #16213e;
   border: 1px solid #0f3460;
   border-radius: 4px;
-  overflow: hidden;
 }
 
 #video {
   width: 100%;
+  height: auto;
   display: block;
-  background-color: #000;
 }
 
 #controls {
@@ -60,7 +59,7 @@ body {
 /* Debug panel */
 
 #debug-panel {
-  max-width: 800px;
+  max-width: 960px;
   margin: 0 auto;
   background-color: #16213e;
   border: 1px solid #0f3460;

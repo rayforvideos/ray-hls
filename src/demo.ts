@@ -30,6 +30,20 @@ const QUALITIES = [
   { name: '1080p', width: 1920, height: 1080, vBitrate: '5000k', aBitrate: '192k' },
 ];
 
+// Detect if video is portrait (rotated) by checking rotation metadata
+let isPortrait = false;
+try {
+  const probe = execSync(
+    `ffprobe -v quiet -show_entries stream_side_data=rotation -of csv=p=0 "${INPUT_FILE}"`,
+    { encoding: 'utf8' }
+  ).trim();
+  // Output may be ",−90" or "−90" — extract the number
+  const rotMatch = probe.match(/-?\d+/);
+  const rotation = rotMatch ? parseInt(rotMatch[0]) : 0;
+  isPortrait = (Math.abs(rotation) === 90 || Math.abs(rotation) === 270);
+  if (isPortrait) console.log(`Detected portrait video (rotation=${rotation})`);
+} catch {}
+
 // Step 1: Generate HLS segments with FFmpeg
 console.log('Generating HLS segments with FFmpeg...');
 
@@ -37,10 +51,14 @@ for (const q of QUALITIES) {
   const dir = path.join(OUTPUT_DIR, q.name);
   fs.mkdirSync(dir, { recursive: true });
 
+  // For portrait video, swap width/height so aspect ratio is preserved
+  const w = isPortrait ? q.height : q.width;
+  const h = isPortrait ? q.width : q.height;
+
   const cmd = [
     'ffmpeg', '-y', '-i', INPUT_FILE,
     '-c:v', 'libx264', '-b:v', q.vBitrate,
-    '-s', `${q.width}x${q.height}`,
+    '-vf', `scale=${w}:${h}`,
     '-pix_fmt', 'yuv420p',
     '-profile:v', 'baseline',
     '-g', '90', '-keyint_min', '90', '-sc_threshold', '0',
@@ -68,8 +86,10 @@ const masterPlaylist = [
   '',
   ...QUALITIES.map(q => {
     const bw = parseInt(q.vBitrate) * 1000 + parseInt(q.aBitrate) * 1000;
+    const resW = isPortrait ? q.height : q.width;
+    const resH = isPortrait ? q.width : q.height;
     return [
-      `#EXT-X-STREAM-INF:BANDWIDTH=${bw},RESOLUTION=${q.width}x${q.height},CODECS="avc1.42c01e,mp4a.40.2"`,
+      `#EXT-X-STREAM-INF:BANDWIDTH=${bw},RESOLUTION=${resW}x${resH},CODECS="avc1.42c01e,mp4a.40.2"`,
       `${q.name}/playlist.m3u8`,
     ].join('\n');
   }),
