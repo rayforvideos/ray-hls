@@ -37,6 +37,7 @@ export class HLSPlayer {
   private _lastBandwidth = 0;
   private _lastBufferLevel = 0;
   private _lastQuality = '-';
+  private _totalSegments = Infinity;
 
   constructor(video: HTMLVideoElement) {
     this.video = video;
@@ -98,6 +99,14 @@ export class HLSPlayer {
       const lastSlash = masterPlaylistUrl.lastIndexOf('/');
       this.baseUrl = lastSlash >= 0 ? masterPlaylistUrl.substring(0, lastSlash) : '';
 
+      // Fetch media playlist to get total duration and segment count
+      const firstQuality = this.qualityLevels[0];
+      const mediaPlaylistUrl = `${this.baseUrl}/${firstQuality.name}/playlist.m3u8`;
+      const mediaPlaylistText = await this.fetchText(mediaPlaylistUrl);
+      const { totalDuration, segmentCount } = this.parseMediaPlaylist(mediaPlaylistText);
+      this._totalSegments = segmentCount;
+      log('Media playlist: duration=' + totalDuration.toFixed(1) + 's, segments=' + segmentCount);
+
       // Fetch first segment BEFORE creating MediaSource (need SPS for codec string)
       const quality = this.abrEngine.decide();
       this._lastQuality = quality.name;
@@ -147,6 +156,13 @@ export class HLSPlayer {
       });
 
       log('MediaSource opened, adding SourceBuffers...');
+
+      // Set duration from playlist so the timeline bar shows total length immediately
+      if (totalDuration > 0) {
+        this.mediaSource.duration = totalDuration;
+        log('Set duration from playlist:', totalDuration);
+      }
+
       const videoSourceBuffer = this.mediaSource.addSourceBuffer(
         `video/mp4; codecs="${codecStr}"`,
       );
@@ -328,6 +344,22 @@ export class HLSPlayer {
         }
 
         this.reportBandwidth(bps, quality).catch(() => {});
+
+        // If we've loaded all segments, end the stream
+        if (this.segmentIndex >= this._totalSegments) {
+          log('All segments loaded, ending stream');
+          this.stateMachine.transition('ENDED');
+          await this.bufferManager.waitForIdle();
+          if (this.mediaSource && this.mediaSource.readyState === 'open') {
+            try {
+              this.mediaSource.endOfStream();
+              log('endOfStream called, duration:', this.video.duration);
+            } catch (e) {
+              log('endOfStream error (non-fatal):', e);
+            }
+          }
+          return;
+        }
       } catch (err) {
         logError('Segment processing error:', err);
       }
@@ -375,6 +407,21 @@ export class HLSPlayer {
       }
     }
     return levels;
+  }
+
+  private parseMediaPlaylist(text: string): { totalDuration: number; segmentCount: number } {
+    let totalDuration = 0;
+    let segmentCount = 0;
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('#EXTINF:')) {
+        const dur = parseFloat(trimmed.substring(8));
+        if (!isNaN(dur)) totalDuration += dur;
+      } else if (trimmed.length > 0 && !trimmed.startsWith('#')) {
+        segmentCount++;
+      }
+    }
+    return { totalDuration, segmentCount };
   }
 
   private async fetchText(url: string): Promise<string> {
