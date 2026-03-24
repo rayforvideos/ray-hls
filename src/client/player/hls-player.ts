@@ -38,6 +38,7 @@ export class HLSPlayer {
   private _lastBandwidth = 0;
   private _lastBufferLevel = 0;
   private _lastQuality = '-';
+  private _currentQualityName = '';
   private _totalSegments = Infinity;
   private _masterPlaylistUrl = '';
 
@@ -222,6 +223,7 @@ export class HLSPlayer {
       await this.bufferManager.appendVideo(videoInitSegment);
       log('Appending audio init segment:', audioInitSegment.byteLength, 'bytes');
       await this.bufferManager.appendAudio(audioInitSegment);
+      this._currentQualityName = quality.name;
 
       // Convert samples: Annex B → AVCC for video, strip ADTS for audio
       const videoSamples = convertVideoSamples(result.videoSamples);
@@ -347,9 +349,33 @@ export class HLSPlayer {
       try {
         const demuxer = new TSDemuxer();
         const result = demuxer.demux(segmentData);
+
+        // If quality changed, append new init segment for the new resolution
+        if (quality.name !== this._currentQualityName) {
+          log(`Quality changed: ${this._currentQualityName} → ${quality.name} (${quality.width}x${quality.height})`);
+          let sps: Uint8Array | null = null;
+          let pps: Uint8Array | null = null;
+          for (const sample of result.videoSamples) {
+            for (const nal of parseNALUnits(sample.data)) {
+              if (nal.type === NAL_TYPE_SPS && !sps) sps = nal.data;
+              if (nal.type === NAL_TYPE_PPS && !pps) pps = nal.data;
+            }
+            if (sps && pps) break;
+          }
+          if (sps && pps) {
+            const initOpts = {
+              width: quality.width, height: quality.height,
+              sps, pps, audioSampleRate: 44100, audioChannels: 2,
+            };
+            await this.bufferManager.appendVideo(generateInitSegment({ ...initOpts, trackType: 'video' as const }));
+            await this.bufferManager.appendAudio(generateInitSegment({ ...initOpts, trackType: 'audio' as const }));
+            this._currentQualityName = quality.name;
+          }
+        }
+
         const videoSamples = convertVideoSamples(result.videoSamples);
         const audioSamples = convertAudioSamples(result.audioSamples);
-        log(`Segment ${this.segmentIndex}: ${videoSamples.length}v + ${audioSamples.length}a samples`);
+        log(`Segment ${this.segmentIndex}: ${videoSamples.length}v + ${audioSamples.length}a samples (${quality.name})`);
 
         const videoMediaSegment = generateMediaSegment(
           this.sequenceNumber, videoSamples, [], this.videoBaseDecodeTime, 0,

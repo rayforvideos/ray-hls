@@ -16,15 +16,17 @@ body {
 #player-container {
   max-width: 960px;
   margin: 0 auto 24px auto;
-  background-color: #16213e;
+  background-color: #000;
   border: 1px solid #0f3460;
   border-radius: 4px;
 }
 
 #video {
   width: 100%;
-  height: auto;
+  height: 540px;
   display: block;
+  object-fit: contain;
+  background-color: #000;
 }
 
 #controls {
