@@ -3,16 +3,41 @@ import { DebugPanel } from './ui/debug-panel.js';
 
 const video = document.getElementById('video') as HTMLVideoElement;
 const strategySelect = document.getElementById('abr-strategy') as HTMLSelectElement;
+const qualitySelect = document.getElementById('quality-select') as HTMLSelectElement;
 
 const player = new HLSPlayer(video);
 const debug = new DebugPanel('chart');
 
-// Strategy switching (delay until ABR is initialized)
+// Strategy switching
 strategySelect.addEventListener('change', () => {
   try {
     player.abr.setStrategy(strategySelect.value);
   } catch { /* ABR not ready yet */ }
 });
+
+// Quality switching
+qualitySelect.addEventListener('change', () => {
+  try {
+    const value = qualitySelect.value;
+    player.abr.lockQuality(value === 'auto' ? null : value);
+  } catch { /* ABR not ready yet */ }
+});
+
+// Populate quality options once player is loaded
+const populateQualities = setInterval(() => {
+  try {
+    const levels = player.abr.getQualityLevels();
+    if (levels.length > 0 && qualitySelect.options.length <= 1) {
+      for (const level of levels) {
+        const opt = document.createElement('option');
+        opt.value = level.name;
+        opt.textContent = `${level.name} (${level.width}x${level.height})`;
+        qualitySelect.appendChild(opt);
+      }
+      clearInterval(populateQualities);
+    }
+  } catch { /* not ready */ }
+}, 500);
 
 // Update debug panel every second
 setInterval(() => {

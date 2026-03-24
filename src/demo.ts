@@ -107,6 +107,11 @@ const html = `<!DOCTYPE html>
           <option value="smooth">Smooth</option>
         </select>
       </label>
+      <label>Quality:
+        <select id="quality-select">
+          <option value="auto">Auto</option>
+        </select>
+      </label>
     </div>
   </div>
   <div id="debug-panel">

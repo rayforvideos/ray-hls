@@ -14,6 +14,7 @@ export class ABREngine {
   private history: Measurement[] = [];
   private qualityLevels: QualityLevel[];
   private currentQuality: QualityLevel;
+  private lockedQuality: QualityLevel | null = null;
 
   constructor(qualityLevels: QualityLevel[]) {
     this.qualityLevels = qualityLevels;
@@ -33,7 +34,22 @@ export class ABREngine {
   }
 
   get currentStrategyName(): string {
+    if (this.lockedQuality) return 'manual:' + this.lockedQuality.name;
     return this.strategy.name;
+  }
+
+  getQualityLevels(): QualityLevel[] {
+    return [...this.qualityLevels];
+  }
+
+  /** Lock to a specific quality. Pass null to return to auto ABR. */
+  lockQuality(qualityName: string | null): void {
+    if (qualityName === null) {
+      this.lockedQuality = null;
+      return;
+    }
+    const level = this.qualityLevels.find(l => l.name === qualityName);
+    if (level) this.lockedQuality = level;
   }
 
   setStrategy(name: string): void {
@@ -68,6 +84,12 @@ export class ABREngine {
   }
 
   decide(): QualityLevel {
+    // Manual lock overrides ABR strategy
+    if (this.lockedQuality) {
+      this.currentQuality = this.lockedQuality;
+      return this.lockedQuality;
+    }
+
     const context: ABRContext = {
       bandwidth: this.bandwidth,
       bufferLevel: this.bufferLevel,
