@@ -54,8 +54,8 @@ export class HLSPlayer {
 
     this.video.addEventListener('timeupdate', () => {
       const currentTime = this.video.currentTime;
-      // Don't cleanup after stream has ended — removing buffered data causes stall
-      if (this.stateMachine.state !== 'ENDED') {
+      // Don't cleanup after all segments loaded or stream ended — can't refill
+      if (this.stateMachine.state !== 'ENDED' && this.segmentIndex < this._totalSegments) {
         this.bufferManager.cleanup(currentTime);
       }
 
@@ -240,7 +240,8 @@ export class HLSPlayer {
       await this.bufferManager.appendAudio(audioMediaSegment);
 
       this.videoBaseDecodeTime += this.computeTotalDuration(videoSamples);
-      this.audioBaseDecodeTime += audioSamples.length * AAC_FRAME_DURATION_90KHZ;
+      // Audio baseDecodeTime must match video to keep MSE buffers aligned
+      this.audioBaseDecodeTime = this.videoBaseDecodeTime;
       log('videoBaseDecodeTime:', this.videoBaseDecodeTime, 'audioBaseDecodeTime:', this.audioBaseDecodeTime);
       this.segmentIndex++;
       this.sequenceNumber++;
@@ -370,6 +371,9 @@ export class HLSPlayer {
         }
 
         this.reportBandwidth(bps, quality).catch(() => {});
+
+        // Yield to let the browser process buffered data and update playback
+        await this.sleep(50);
 
         // If we've loaded all segments, end the stream
         if (this.segmentIndex >= this._totalSegments) {

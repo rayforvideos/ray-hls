@@ -127,9 +127,55 @@ export function convertVideoSamples(samples: DemuxedSample[]): DemuxedSample[] {
 }
 
 /**
- * Convert audio samples: strip ADTS headers
+ * Convert audio samples: split each PES into individual AAC frames (strip ADTS headers).
+ * One PES may contain multiple ADTS frames; each becomes a separate DemuxedSample
+ * with PTS spaced by AAC_FRAME_DURATION (1024 samples / sampleRate * 90kHz).
  */
+const AAC_FRAME_TICKS = Math.round(1024 / 44100 * 90000);
+
 export function convertAudioSamples(samples: DemuxedSample[]): DemuxedSample[] {
+  const out: DemuxedSample[] = [];
+  for (const s of samples) {
+    const frames = splitADTSFrames(s.data);
+    if (frames.length === 0) {
+      // No ADTS found, keep as-is
+      out.push({ ...s, data: s.data });
+      continue;
+    }
+    for (let i = 0; i < frames.length; i++) {
+      out.push({
+        pts: s.pts + i * AAC_FRAME_TICKS,
+        data: frames[i],
+      });
+    }
+  }
+  return out;
+}
+
+/** Split ADTS byte stream into individual raw AAC frames (headers stripped). */
+function splitADTSFrames(data: Uint8Array): Uint8Array[] {
+  const frames: Uint8Array[] = [];
+  let offset = 0;
+  while (offset < data.length - 7) {
+    if (data[offset] === 0xFF && (data[offset + 1] & 0xF0) === 0xF0) {
+      const protectionAbsent = data[offset + 1] & 0x01;
+      const headerSize = protectionAbsent ? 7 : 9;
+      const frameLength = ((data[offset + 3] & 0x03) << 11) |
+                          (data[offset + 4] << 3) |
+                          ((data[offset + 5] >> 5) & 0x07);
+      if (frameLength > headerSize && offset + frameLength <= data.length) {
+        frames.push(data.subarray(offset + headerSize, offset + frameLength));
+        offset += frameLength;
+        continue;
+      }
+    }
+    offset++;
+  }
+  return frames;
+}
+
+// Keep old function for backward compat but it's unused now
+export function _convertAudioSamplesOld(samples: DemuxedSample[]): DemuxedSample[] {
   return samples.map(s => ({
     ...s,
     data: stripADTSHeader(s.data),
