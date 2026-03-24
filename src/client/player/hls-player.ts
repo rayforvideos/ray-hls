@@ -40,17 +40,22 @@ export class HLSPlayer {
   private _lastQuality = '-';
   private _totalSegments = Infinity;
   private _masterPlaylistUrl = '';
+  private _reloading = false;
 
   constructor(video: HTMLVideoElement) {
     this.video = video;
 
-    // Allow replay after ended: reload the entire stream
-    this.video.addEventListener('click', () => {
-      if (this.video.ended && this._masterPlaylistUrl) {
+    // Allow replay after ended: any interaction (click, seek, play) reloads the stream
+    const handleReplay = () => {
+      if (this.stateMachine.state === 'ENDED' && this._masterPlaylistUrl && !this._reloading) {
+        this._reloading = true;
         this.reset();
-        this.load(this._masterPlaylistUrl);
+        this.load(this._masterPlaylistUrl).finally(() => { this._reloading = false; });
       }
-    });
+    };
+    this.video.addEventListener('click', handleReplay);
+    this.video.addEventListener('seeking', handleReplay);
+    this.video.addEventListener('play', handleReplay);
 
     this.video.addEventListener('timeupdate', () => {
       const currentTime = this.video.currentTime;
