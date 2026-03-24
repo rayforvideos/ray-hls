@@ -38,9 +38,18 @@ export class HLSPlayer {
   private _lastBufferLevel = 0;
   private _lastQuality = '-';
   private _totalSegments = Infinity;
+  private _masterPlaylistUrl = '';
 
   constructor(video: HTMLVideoElement) {
     this.video = video;
+
+    // Allow replay after ended: reload the entire stream
+    this.video.addEventListener('play', () => {
+      if (this.stateMachine.state === 'ENDED' && this._masterPlaylistUrl) {
+        this.reset();
+        this.load(this._masterPlaylistUrl);
+      }
+    });
 
     this.video.addEventListener('timeupdate', () => {
       const currentTime = this.video.currentTime;
@@ -81,7 +90,24 @@ export class HLSPlayer {
   get lastBufferLevel(): number { return this._lastBufferLevel; }
   get lastQuality(): string { return this._lastQuality; }
 
+  private reset(): void {
+    // Revoke old MediaSource URL
+    if (this.video.src) {
+      URL.revokeObjectURL(this.video.src);
+    }
+    this.mediaSource = null;
+    this.bufferManager = new BufferManager();
+    this.segmentIndex = 0;
+    this.videoBaseDecodeTime = 0;
+    this.audioBaseDecodeTime = 0;
+    this.sequenceNumber = 1;
+    this._totalSegments = Infinity;
+    this.stateMachine = new PlayerStateMachine();
+    log('Player reset for replay');
+  }
+
   async load(masterPlaylistUrl: string): Promise<void> {
+    this._masterPlaylistUrl = masterPlaylistUrl;
     try {
       if (!this.stateMachine.transition('LOADING_MANIFEST')) {
         throw new Error('Cannot load: invalid state transition');
