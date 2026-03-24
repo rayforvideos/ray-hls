@@ -174,9 +174,13 @@ export class TSPackager extends EventEmitter {
 
   private _writePAT(): void {
     const patSection = buildPAT(PMT_PID);
+    // MPEG-TS: section-carrying packets with PUSI=1 must begin with a
+    // pointer_field byte (ISO 13818-1 §2.4.4.2). Value 0x00 means the section
+    // starts immediately after the pointer field.
+    const payload = Buffer.concat([Buffer.alloc(1, 0x00), patSection]);
     const pkt = buildTSPacket({
       pid: PAT_PID,
-      payload: patSection,
+      payload,
       payloadUnitStart: true,
       continuityCounter: this.ccPAT & 0x0F,
     });
@@ -186,9 +190,11 @@ export class TSPackager extends EventEmitter {
 
   private _writePMT(): void {
     const pmtSection = buildPMT(VIDEO_PID, AUDIO_PID);
+    // Same pointer_field requirement as PAT.
+    const payload = Buffer.concat([Buffer.alloc(1, 0x00), pmtSection]);
     const pkt = buildTSPacket({
       pid: PMT_PID,
-      payload: pmtSection,
+      payload,
       payloadUnitStart: true,
       continuityCounter: this.ccPMT & 0x0F,
     });
