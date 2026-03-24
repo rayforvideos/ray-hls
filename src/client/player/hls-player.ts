@@ -40,29 +40,23 @@ export class HLSPlayer {
   private _lastQuality = '-';
   private _totalSegments = Infinity;
   private _masterPlaylistUrl = '';
-  private _reloading = false;
-  private _hasEnded = false;
 
   constructor(video: HTMLVideoElement) {
     this.video = video;
 
-    // Track when video reaches the end
-    this.video.addEventListener('ended', () => {
-      this._hasEnded = true;
-    });
-
-    // Replay on any interaction after the video has ended
-    const handleReplay = () => {
-      if (this._hasEnded && this._masterPlaylistUrl && !this._reloading) {
-        this._hasEnded = false;
-        this._reloading = true;
-        this.reset();
-        this.load(this._masterPlaylistUrl).finally(() => { this._reloading = false; });
+    // After ended: seeking via timeline just works (buffer is intact).
+    // Click on video restarts from beginning. Use setTimeout to avoid
+    // conflicting with the browser's built-in play/pause toggle.
+    this.video.addEventListener('click', () => {
+      if (this.video.ended) {
+        this.video.currentTime = 0;
+        setTimeout(() => {
+          if (this.video.paused) {
+            this.video.play().catch(() => {});
+          }
+        }, 100);
       }
-    };
-    this.video.addEventListener('click', handleReplay);
-    this.video.addEventListener('seeking', handleReplay);
-    this.video.addEventListener('play', handleReplay);
+    });
 
     this.video.addEventListener('timeupdate', () => {
       const currentTime = this.video.currentTime;
@@ -112,7 +106,6 @@ export class HLSPlayer {
     this.audioBaseDecodeTime = 0;
     this.sequenceNumber = 1;
     this._totalSegments = Infinity;
-    this._hasEnded = false;
     this.stateMachine = new PlayerStateMachine();
     log('Player reset for replay');
   }
