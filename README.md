@@ -6,11 +6,7 @@
 
 ## 데모 시연 영상
 
-https://github.com/user-attachments/assets/demo.mov
-
-https://github.com/rayforvideos/ray-hls/raw/main/demo.mov
-
-<video src="demo.mov" controls width="100%"></video>
+![Ray-HLS 데모 시연](demo.gif)
 
 ## 기존 HLS와 다른 점
 
