@@ -56,14 +56,18 @@ export class BufferManager {
   }
 
   getBufferedEnd(): number {
-    let end = 0;
-    if (this.videoBuffer && this.videoBuffer.buffered.length > 0) {
-      end = Math.min(end || Infinity, this.videoBuffer.buffered.end(this.videoBuffer.buffered.length - 1));
+    try {
+      let end = 0;
+      if (this.videoBuffer && this.videoBuffer.buffered.length > 0) {
+        end = Math.min(end || Infinity, this.videoBuffer.buffered.end(this.videoBuffer.buffered.length - 1));
+      }
+      if (this.audioBuffer && this.audioBuffer.buffered.length > 0) {
+        end = Math.min(end, this.audioBuffer.buffered.end(this.audioBuffer.buffered.length - 1));
+      }
+      return end;
+    } catch {
+      return 0;
     }
-    if (this.audioBuffer && this.audioBuffer.buffered.length > 0) {
-      end = Math.min(end, this.audioBuffer.buffered.end(this.audioBuffer.buffered.length - 1));
-    }
-    return end;
   }
 
   async waitForIdle(): Promise<void> {
@@ -78,15 +82,19 @@ export class BufferManager {
   }
 
   getBufferLevel(currentTime: number): number {
-    if (!this.videoBuffer || this.videoBuffer.buffered.length === 0) {
-      return 0;
-    }
-    for (let i = 0; i < this.videoBuffer.buffered.length; i++) {
-      const start = this.videoBuffer.buffered.start(i);
-      const end = this.videoBuffer.buffered.end(i);
-      if (currentTime >= start && currentTime <= end) {
-        return end - currentTime;
+    try {
+      if (!this.videoBuffer || this.videoBuffer.buffered.length === 0) {
+        return 0;
       }
+      for (let i = 0; i < this.videoBuffer.buffered.length; i++) {
+        const start = this.videoBuffer.buffered.start(i);
+        const end = this.videoBuffer.buffered.end(i);
+        if (currentTime >= start && currentTime <= end) {
+          return end - currentTime;
+        }
+      }
+    } catch {
+      // SourceBuffer가 MediaSource에서 제거된 후 접근 시 무시
     }
     return 0;
   }
