@@ -8,9 +8,9 @@ export interface Measurement {
 }
 
 export interface ABRContext {
-  bandwidth: number;           // bps
-  bufferLevel: number;         // seconds
-  history: Measurement[];      // last 10 segments
+  bandwidth: number;           // bps (비트/초)
+  bufferLevel: number;         // 초 단위
+  history: Measurement[];      // 최근 10개 세그먼트
   qualityLevels: QualityLevel[];
   currentQuality: QualityLevel;
 }

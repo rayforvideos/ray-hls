@@ -1,9 +1,9 @@
 /**
- * Low-level helpers for constructing ISO BMFF (MP4) boxes.
- * All operations use Uint8Array/DataView for browser compatibility.
+ * ISO BMFF (MP4) 박스 구성을 위한 저수준 헬퍼.
+ * 모든 연산은 브라우저 호환성을 위해 Uint8Array/DataView를 사용한다.
  */
 
-/** Concatenate multiple Uint8Arrays into one. */
+/** 여러 Uint8Array를 하나로 합친다. */
 export function concat(...arrays: Uint8Array[]): Uint8Array {
   let totalLength = 0;
   for (const arr of arrays) {
@@ -18,7 +18,7 @@ export function concat(...arrays: Uint8Array[]): Uint8Array {
   return result;
 }
 
-/** Encode a 32-bit unsigned integer as big-endian 4 bytes. */
+/** 32비트 부호 없는 정수를 빅엔디안 4바이트로 인코딩한다. */
 export function uint32(value: number): Uint8Array {
   const buf = new Uint8Array(4);
   const view = new DataView(buf.buffer);
@@ -26,7 +26,7 @@ export function uint32(value: number): Uint8Array {
   return buf;
 }
 
-/** Encode a 16-bit unsigned integer as big-endian 2 bytes. */
+/** 16비트 부호 없는 정수를 빅엔디안 2바이트로 인코딩한다. */
 export function uint16(value: number): Uint8Array {
   const buf = new Uint8Array(2);
   const view = new DataView(buf.buffer);
@@ -34,20 +34,20 @@ export function uint16(value: number): Uint8Array {
   return buf;
 }
 
-/** Encode an 8-bit unsigned integer as 1 byte. */
+/** 8비트 부호 없는 정수를 1바이트로 인코딩한다. */
 export function uint8(value: number): Uint8Array {
   return new Uint8Array([value & 0xff]);
 }
 
 /**
- * Create an MP4 box: 4-byte size (big-endian) + 4-byte ASCII type + payloads.
+ * MP4 박스 생성: 4바이트 크기(빅엔디안) + 4바이트 ASCII 타입 + 페이로드.
  */
 export function box(type: string, ...payloads: Uint8Array[]): Uint8Array {
   let payloadSize = 0;
   for (const p of payloads) {
     payloadSize += p.length;
   }
-  const size = 8 + payloadSize; // 4 (size) + 4 (type) + payload
+  const size = 8 + payloadSize; // 4(크기) + 4(타입) + 페이로드
   const header = new Uint8Array(8);
   const view = new DataView(header.buffer);
   view.setUint32(0, size, false);
@@ -59,7 +59,7 @@ export function box(type: string, ...payloads: Uint8Array[]): Uint8Array {
 }
 
 /**
- * Create a full box: box with version (1 byte) + flags (3 bytes) prepended to payload.
+ * Full box 생성: 버전(1바이트) + 플래그(3바이트)가 페이로드 앞에 추가된 박스.
  */
 export function fullBox(
   type: string,

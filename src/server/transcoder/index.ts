@@ -15,7 +15,7 @@ export class Transcoder extends EventEmitter {
     const presets = getPresets();
 
     for (const preset of presets) {
-      // Only include this preset if its level is in the target list
+      // 대상 화질 목록에 포함된 프리셋만 처리
       const include = targetLevels.some(l => l.name === preset.level.name);
       if (!include) continue;
 

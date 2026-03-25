@@ -15,10 +15,10 @@ export class FFmpegProcess extends EventEmitter {
   }
 
   start(): void {
-    // Build base input args
+    // 기본 입력 인자 구성
     const inputArgs = ['-i', this.inputPath];
 
-    // --- Video process: no audio (-an), output to stdout (pipe:1) ---
+    // --- 비디오 프로세스: 오디오 제외(-an), 표준 출력으로 전달(pipe:1) ---
     const videoArgs = [
       ...inputArgs,
       '-an',
@@ -40,7 +40,7 @@ export class FFmpegProcess extends EventEmitter {
       this.emit('error', err);
     });
 
-    // --- Audio process: no video (-vn), output to stdout (pipe:1) ---
+    // --- 오디오 프로세스: 비디오 제외(-vn), 표준 출력으로 전달(pipe:1) ---
     const audioArgs = [
       ...inputArgs,
       '-vn',

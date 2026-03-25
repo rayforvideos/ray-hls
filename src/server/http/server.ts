@@ -55,22 +55,22 @@ export class HLSServer extends EventEmitter {
     const method = req.method ?? 'GET';
     const url = req.url ?? '/';
 
-    // OPTIONS preflight
+    // OPTIONS 프리플라이트 처리
     if (method === 'OPTIONS') {
       res.writeHead(204, CORS_HEADERS);
       res.end();
       return;
     }
 
-    // POST /api/bandwidth
+    // POST /api/bandwidth — 대역폭 리포트
     if (method === 'POST' && url === '/api/bandwidth') {
       this.handleBandwidthReport(req, res);
       return;
     }
 
-    // GET routes
+    // GET 라우트
     if (method === 'GET') {
-      // GET /master.m3u8
+      // GET /master.m3u8 — 마스터 플레이리스트
       if (url === '/master.m3u8') {
         if (this.masterPlaylist === null) {
           this.send404(res);
@@ -81,7 +81,7 @@ export class HLSServer extends EventEmitter {
         return;
       }
 
-      // GET /{quality}/playlist.m3u8
+      // GET /{화질}/playlist.m3u8 — 미디어 플레이리스트
       const playlistMatch = url.match(/^\/([^/]+)\/playlist\.m3u8$/);
       if (playlistMatch) {
         const quality = playlistMatch[1];
@@ -95,7 +95,7 @@ export class HLSServer extends EventEmitter {
         return;
       }
 
-      // GET /{quality}/{filename}.ts
+      // GET /{화질}/{파일명}.ts — TS 세그먼트
       const segmentMatch = url.match(/^\/([^/]+)\/([^/]+\.ts)$/);
       if (segmentMatch) {
         const quality = segmentMatch[1];
@@ -157,7 +157,7 @@ export class HLSServer extends EventEmitter {
       try {
         body = JSON.parse(Buffer.concat(chunks).toString());
       } catch {
-        // ignore parse errors, emit empty object
+        // 파싱 에러 무시, 빈 객체 전달
       }
       this.emit('bandwidthReport', body);
       res.writeHead(200, { ...CORS_HEADERS, 'Content-Type': 'application/json' });

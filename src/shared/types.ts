@@ -2,14 +2,14 @@ export interface QualityLevel {
   name: string;           // '360p', '480p', '720p', '1080p'
   width: number;
   height: number;
-  videoBitrate: number;   // bps
-  audioBitrate: number;   // bps
+  videoBitrate: number;   // bps (비트/초)
+  audioBitrate: number;   // bps (비트/초)
 }
 
 export interface SegmentInfo {
   index: number;
-  duration: number;       // seconds
-  filename: string;       // e.g. 'seg-0.ts'
+  duration: number;       // 초 단위
+  filename: string;       // 예: 'seg-0.ts'
   quality: QualityLevel;
   byteSize: number;
 }
@@ -22,21 +22,21 @@ export const QUALITY_LEVELS: QualityLevel[] = [
 ];
 
 export const TS_PACKET_SIZE = 188;
-export const SEGMENT_DURATION = 6; // seconds
+export const SEGMENT_DURATION = 6; // 초 단위
 export const PTS_CLOCK_RATE = 90_000; // 90kHz
 
-// MPEG-TS PIDs
+// MPEG-TS PID 상수
 export const PAT_PID = 0x0000;
 export const PMT_PID = 0x1000;
 export const VIDEO_PID = 0x0100;
 export const AUDIO_PID = 0x0101;
 
-// H.264 NAL unit types
+// H.264 NAL 유닛 타입
 export const NAL_TYPE_IDR = 5;
 export const NAL_TYPE_NON_IDR = 1;
 export const NAL_TYPE_SPS = 7;
 export const NAL_TYPE_PPS = 8;
 
-// MPEG-TS stream types
+// MPEG-TS 스트림 타입
 export const STREAM_TYPE_H264 = 0x1B;
 export const STREAM_TYPE_AAC = 0x0F;

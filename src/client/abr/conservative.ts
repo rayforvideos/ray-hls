@@ -8,7 +8,7 @@ export class ConservativeStrategy implements ABRStrategy {
     const usableBandwidth = context.bandwidth * 0.7;
     const levels = context.qualityLevels;
 
-    // Select highest level where totalBitrate <= usableBandwidth
+    // 총 비트레이트가 사용 가능 대역폭(70%) 이하인 최고 화질 선택
     let selected = levels[0];
     for (const level of levels) {
       const totalBitrate = level.videoBitrate + level.audioBitrate;

@@ -1,12 +1,12 @@
 import { QualityLevel } from '../../shared/types.js';
 
 export interface PrefetchConfig {
-  bufferTarget: number; // seconds (default 30)
+  bufferTarget: number; // 초 단위 (기본값 30)
 }
 
 export interface PrefetchInput {
-  bufferLevel: number;      // current buffer in seconds
-  bandwidth: number;        // measured bps
+  bufferLevel: number;      // 현재 버퍼 수준 (초)
+  bandwidth: number;        // 측정된 대역폭 (bps)
   currentQuality: QualityLevel;
   nextSegmentIndex: number;
 }

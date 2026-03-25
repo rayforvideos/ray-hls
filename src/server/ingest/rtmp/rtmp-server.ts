@@ -39,9 +39,9 @@ function handleConnection(socket: net.Socket, emitter: EventEmitter): void {
 
       if (state === 'WAITING_C0C1') {
         if (recvBuf.length >= 1537) {
-          const c0 = recvBuf.slice(0, 1);
-          const c1 = recvBuf.slice(1, 1537);
-          recvBuf = recvBuf.slice(1537);
+          const c0 = recvBuf.subarray(0, 1);
+          const c1 = recvBuf.subarray(1, 1537);
+          recvBuf = recvBuf.subarray(1537);
 
           if (!validateC0(c0)) {
             socket.destroy();
@@ -55,8 +55,8 @@ function handleConnection(socket: net.Socket, emitter: EventEmitter): void {
         }
       } else if (state === 'WAITING_C2') {
         if (recvBuf.length >= 1536) {
-          // Discard C2
-          recvBuf = recvBuf.slice(1536);
+          // C2 폐기
+          recvBuf = recvBuf.subarray(1536);
           state = 'READY';
           emitter.emit('connection');
           consumed = true;
@@ -84,18 +84,18 @@ function handleConnection(socket: net.Socket, emitter: EventEmitter): void {
           const payloadSize = Math.min(messageLength, chunkPayloadSize);
           if (recvBuf.length < headerSize + payloadSize) break;
 
-          const payload = recvBuf.slice(headerSize, headerSize + payloadSize);
-          recvBuf = recvBuf.slice(headerSize + payloadSize);
+          const payload = recvBuf.subarray(headerSize, headerSize + payloadSize);
+          recvBuf = recvBuf.subarray(headerSize + payloadSize);
 
           if (messageLength <= chunkPayloadSize) {
-            // Complete message in one chunk
+            // 한 청크로 완성된 메시지
             dispatchMessage(messageTypeId, payload);
           } else {
-            // Start assembling multi-chunk message
+            // 다중 청크 메시지 조립 시작
             messageBuffers.set(csid, {
               messageTypeId,
               messageLength,
-              data: payload,
+              data: Buffer.from(payload),
             });
           }
           consumed = true;
@@ -107,8 +107,8 @@ function handleConnection(socket: net.Socket, emitter: EventEmitter): void {
           const payloadSize = Math.min(remaining, chunkPayloadSize);
           if (recvBuf.length < headerSize + payloadSize) break;
 
-          const payload = recvBuf.slice(headerSize, headerSize + payloadSize);
-          recvBuf = recvBuf.slice(headerSize + payloadSize);
+          const payload = recvBuf.subarray(headerSize, headerSize + payloadSize);
+          recvBuf = recvBuf.subarray(headerSize + payloadSize);
 
           existing.data = Buffer.concat([existing.data, payload]);
 
@@ -118,14 +118,14 @@ function handleConnection(socket: net.Socket, emitter: EventEmitter): void {
           }
           consumed = true;
         } else if (fmt === 1 || fmt === 2) {
-          // For minimal subset: treat like type 0 but with delta timestamp
+          // 최소 서브셋: 타입 0처럼 처리하되 타임스탬프 델타 사용
           const { messageLength, messageTypeId } = headerResult;
           if (fmt === 1 && messageLength !== undefined && messageTypeId !== undefined) {
             const payloadSize = Math.min(messageLength, chunkPayloadSize);
             if (recvBuf.length < headerSize + payloadSize) break;
 
-            const payload = recvBuf.slice(headerSize, headerSize + payloadSize);
-            recvBuf = recvBuf.slice(headerSize + payloadSize);
+            const payload = recvBuf.subarray(headerSize, headerSize + payloadSize);
+            recvBuf = recvBuf.subarray(headerSize + payloadSize);
 
             if (messageLength <= chunkPayloadSize) {
               dispatchMessage(messageTypeId, payload);
@@ -133,19 +133,19 @@ function handleConnection(socket: net.Socket, emitter: EventEmitter): void {
               messageBuffers.set(csid, {
                 messageTypeId,
                 messageLength,
-                data: payload,
+                data: Buffer.from(payload),
               });
             }
             consumed = true;
           } else if (fmt === 2) {
-            // Type 2: only timestamp delta, use existing csid state
+            // 타입 2: 타임스탬프 델타만, 기존 csid 상태 사용
             const existing = messageBuffers.get(csid);
             if (!existing) break;
             const remaining = existing.messageLength - existing.data.length;
             const payloadSize = Math.min(remaining, chunkPayloadSize);
             if (recvBuf.length < headerSize + payloadSize) break;
-            const payload = recvBuf.slice(headerSize, headerSize + payloadSize);
-            recvBuf = recvBuf.slice(headerSize + payloadSize);
+            const payload = recvBuf.subarray(headerSize, headerSize + payloadSize);
+            recvBuf = recvBuf.subarray(headerSize + payloadSize);
             existing.data = Buffer.concat([existing.data, payload]);
             if (existing.data.length >= existing.messageLength) {
               dispatchMessage(existing.messageTypeId, existing.data);
@@ -168,7 +168,7 @@ function handleConnection(socket: net.Socket, emitter: EventEmitter): void {
         const args = decodeAMF0Multiple(payload);
         emitter.emit('command', args);
       } catch {
-        // ignore malformed AMF0
+        // 잘못된 AMF0 무시
       }
     }
   }

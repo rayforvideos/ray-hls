@@ -44,9 +44,8 @@ export class MediaPlaylist {
       lines.push(seg.filename);
     }
 
-    if (this.mode === 'vod' && this.finalized) {
-      lines.push('#EXT-X-ENDLIST');
-    } else if (this.mode === 'live' && this.finalized) {
+    // 확정(finalize) 상태이면 종료 태그 추가 (VOD/live 동일)
+    if (this.finalized) {
       lines.push('#EXT-X-ENDLIST');
     }
 
@@ -57,7 +56,7 @@ export class MediaPlaylist {
     if (this.mode === 'vod') {
       return this.segments;
     }
-    // Live: sliding window of last LIVE_WINDOW_SIZE segments
+    // 라이브: 마지막 LIVE_WINDOW_SIZE개 세그먼트의 슬라이딩 윈도우
     const start = Math.max(0, this.segments.length - LIVE_WINDOW_SIZE);
     return this.segments.slice(start);
   }

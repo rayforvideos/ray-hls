@@ -8,7 +8,7 @@ export class SmoothStrategy implements ABRStrategy {
     const levels = context.qualityLevels;
     const usableBandwidth = context.bandwidth * 0.8;
 
-    // Find the ideal level using 80% of bandwidth
+    // 대역폭의 80%를 사용하여 이상적인 화질 수준 탐색
     let ideal = levels[0];
     for (const level of levels) {
       const totalBitrate = level.videoBitrate + level.audioBitrate;
@@ -17,16 +17,16 @@ export class SmoothStrategy implements ABRStrategy {
       }
     }
 
-    // Find current quality index
+    // 현재 화질 인덱스 탐색
     const currentIndex = levels.findIndex(l => l.name === context.currentQuality.name);
     const idealIndex = levels.findIndex(l => l.name === ideal.name);
 
-    // If ideal == current, stay
+    // 이상적 화질이 현재와 같으면 유지
     if (idealIndex === currentIndex) {
       return levels[currentIndex];
     }
 
-    // Limit change to ONE step from current quality
+    // 현재 화질에서 한 단계만 변경하도록 제한
     if (idealIndex > currentIndex) {
       return levels[Math.min(currentIndex + 1, levels.length - 1)];
     } else {
