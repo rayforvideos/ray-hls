@@ -4,6 +4,14 @@
 
 기존 HLS 라이브러리(hls.js 등)를 사용하지 않고, TS 디먹싱 → fMP4 리먹싱 → MSE 재생까지 전체 파이프라인을 직접 구현했습니다.
 
+## 데모 시연 영상
+
+https://github.com/user-attachments/assets/demo.mov
+
+https://github.com/rayforvideos/ray-hls/raw/main/demo.mov
+
+<video src="demo.mov" controls width="100%"></video>
+
 ## 기존 HLS와 다른 점
 
 ### 1. 플러그인 방식 ABR 전략 엔진
@@ -115,11 +123,12 @@ npm run test:watch  # 워치 모드
 ### 데모 실행
 
 ```bash
-npx tsx src/demo.ts path/to/video.mp4
+npx tsx src/demo.ts
 ```
 
-`http://localhost:8080`에서 플레이어가 열립니다.
+`http://localhost:8080`에서 플레이어가 열립니다. 브라우저에서 영상 파일을 업로드하면 자동으로 트랜스코딩 후 재생됩니다.
 
+- 영상 파일 드래그 앤 드롭 / 파일 선택 업로드
 - 세로 영상(폰 촬영) 자동 감지
 - 360p / 480p / 720p / 1080p 4개 품질 자동 생성
 - ABR 전략 실시간 전환

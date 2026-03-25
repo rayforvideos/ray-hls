@@ -39,6 +39,7 @@ export class HLSPlayer {
   private _lastBufferLevel = 0;
   private _lastQuality = '-';
   private _currentQualityName = '';
+  private _currentSpsPps = ''; // SPS/PPS 해시 — 실제 코덱 변경 시에만 init segment 재주입
   private _totalSegments = Infinity;
   private _masterPlaylistUrl = '';
 
@@ -224,6 +225,7 @@ export class HLSPlayer {
       log('Appending audio init segment:', audioInitSegment.byteLength, 'bytes');
       await this.bufferManager.appendAudio(audioInitSegment);
       this._currentQualityName = quality.name;
+      this._currentSpsPps = this.spsPpsKey(sps, pps);
 
       // Convert samples: Annex B → AVCC for video, strip ADTS for audio
       const videoSamples = convertVideoSamples(result.videoSamples);
@@ -350,7 +352,8 @@ export class HLSPlayer {
         const demuxer = new TSDemuxer();
         const result = demuxer.demux(segmentData);
 
-        // If quality changed, append new init segment for the new resolution
+        // 화질 변경 시 SPS/PPS가 실제로 달라진 경우에만 init segment 재주입
+        // (같은 코덱 프로파일이면 재주입 불필요 — 디코더 리셋으로 깜빡임 방지)
         if (quality.name !== this._currentQualityName) {
           log(`Quality changed: ${this._currentQualityName} → ${quality.name} (${quality.width}x${quality.height})`);
           let sps: Uint8Array | null = null;
@@ -363,12 +366,17 @@ export class HLSPlayer {
             if (sps && pps) break;
           }
           if (sps && pps) {
-            const initOpts = {
-              width: quality.width, height: quality.height,
-              sps, pps, audioSampleRate: 44100, audioChannels: 2,
-            };
-            await this.bufferManager.appendVideo(generateInitSegment({ ...initOpts, trackType: 'video' as const }));
-            await this.bufferManager.appendAudio(generateInitSegment({ ...initOpts, trackType: 'audio' as const }));
+            const newKey = this.spsPpsKey(sps, pps);
+            if (newKey !== this._currentSpsPps) {
+              log('SPS/PPS changed, re-appending init segments');
+              const initOpts = {
+                width: quality.width, height: quality.height,
+                sps, pps, audioSampleRate: 44100, audioChannels: 2,
+              };
+              await this.bufferManager.appendVideo(generateInitSegment({ ...initOpts, trackType: 'video' as const }));
+              await this.bufferManager.appendAudio(generateInitSegment({ ...initOpts, trackType: 'audio' as const }));
+              this._currentSpsPps = newKey;
+            }
             this._currentQualityName = quality.name;
           }
         }
@@ -511,6 +519,13 @@ export class HLSPlayer {
         }),
       });
     } catch { /* ignore */ }
+  }
+
+  private spsPpsKey(sps: Uint8Array, pps: Uint8Array): string {
+    let h = 0;
+    for (let i = 0; i < sps.length; i++) h = ((h << 5) - h + sps[i]) | 0;
+    for (let i = 0; i < pps.length; i++) h = ((h << 5) - h + pps[i]) | 0;
+    return `${sps.length}:${pps.length}:${h}`;
   }
 
   private sleep(ms: number): Promise<void> {

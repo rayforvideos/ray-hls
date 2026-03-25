@@ -59,8 +59,7 @@ export class DebugPanel {
     const { width, height } = this.canvas;
     const ctx = this.ctx;
 
-    // 캔버스 초기화
-    ctx.clearRect(0, 0, width, height);
+    // 배경으로 직접 덮어쓰기 (clearRect 없이 — 투명 프레임 깜빡임 방지)
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(0, 0, width, height);
 
